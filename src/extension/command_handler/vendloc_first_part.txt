@@ -1,0 +1,123 @@
+#include "vendloc_command.hpp"
+#include "../../client/client.hpp"
+#include "../../player/player.hpp"
+#include "../../server/server.hpp"
+#include "../../core/core.hpp"
+#include "../../utils/packet_utils.hpp"
+#include "../../utils/text_parse.hpp"
+#include "../../utils/api_client.hpp"
+#include "../../packet/packet_variant.hpp"
+#include "../../packet/packet_types.hpp"
+#include "../../utils/byte_stream.hpp"
+#include "../item_finder/item_finder.hpp"
+#include <spdlog/spdlog.h>
+#include <fmt/format.h>
+#include <fstream>
+#include <sstream>
+#include <chrono>
+#include <iomanip>
+#include <algorithm>
+#include <set>
+
+namespace command {
+
+static core::Core* g_core = nullptr;
+static const std::string VENDING_DATA_FILE = "vending_data.txt";
+static extension::item_finder::ItemDatabase* g_item_database = nullptr;
+
+VendLocCommand::VendLocCommand() : CommandBase(
+    {"vendf", "vendloc"},
+    {},
+    "Search for items in vending machines",
+    0
+) {}
+
+std::unique_ptr<CommandBase> VendLocCommand::clone() const {
+    return std::make_unique<VendLocCommand>();
+}
+
+void VendLocCommand::set_core(core::Core* core) {
+    g_core = core;
+}
+
+void VendLocCommand::set_item_database(extension::item_finder::ItemDatabase* database) {
+    g_item_database = database;
+    spdlog::info("VendLocCommand: Item database set");
+}
+
+void VendLocCommand::execute(client::Client* client, const std::vector<std::string>& args) {
+    spdlog::info("=== VENDLOC COMMAND EXECUTED ===");
+    
+    if (!client || !client->get_player()) {
+        spdlog::error("VendLocCommand: No client or player!");
+        return;
+    }
+
+    if (!g_core) {
+        spdlog::error("VendLocCommand: No core set!");
+        return;
+    }
+
+    auto* server = g_core->get_server();
+    if (!server || !server->get_player()) {
+        spdlog::error("VendLocCommand: No server player!");
+        return;
+    }
+
+    VendLocCommand cmd;
+    cmd.show_search_gui(server->get_player(), "");
+}
+
+void VendLocCommand::save_world_vendings(const world_v2::World& world) {
+    if (!world.is_valid || world.tiles.empty()) {
+        return;
+    }
+
+    auto now = std::chrono::system_clock::now();
+    auto time_t = std::chrono::system_clock::to_time_t(now);
+    std::stringstream ss;
+    ss << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S");
+    std::string timestamp = ss.str();
+
+    std::vector<VendingEntry> entries;
+    
+    for (const auto& tile : world.tiles) {
+        if ((tile.fg == 2978 || tile.fg == 9268) && tile.vending_data.has_data()) {
+            VendingEntry entry;
+            entry.world_name = world.name;
+            entry.timestamp = timestamp;
+            entry.x = tile.x;
+            entry.y = tile.y;
+            entry.tile_id = tile.fg;
+            entry.item_id = tile.vending_data.item_id;
+            entry.price = tile.vending_data.get_price();
+            entry.is_wl_price = tile.vending_data.is_world_lock_price();
+            entries.push_back(entry);
+            
+            // Upload to API (async, non-blocking)
+            if (g_item_database) {
+                auto search_results = g_item_database->search_items(std::to_string(entry.item_id), 1, "all");
+                std::string item_name = "Unknown";
+                if (!search_results.empty() && search_results[0].id == static_cast<int>(entry.item_id)) {
+                    item_name = search_results[0].name;
+                }
+                
+                utils::APIClient::upload_vending_data(
+                    world.name,
+                    "",
+                    entry.item_id,
+                    item_name,
+                    1,
+                    entry.price,
+                    entry.x,
+                    entry.y
+                );
+            }
+        }
+    }
+
+    if (!entries.empty()) {
+        spdlog::info("VendLocCommand: Saved {} vendings from world '{}' (uploaded to API)", entries.size(), world.name);
+        append_to_file(entries);
+    }
+}
