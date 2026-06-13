@@ -26,5 +26,3 @@ Dear ImGui Integration Steps (Windows, Visual Studio)
 7. Connect ImGui controls to your backend logic.
 
 8. Remove or disable old Win32 GUI code.
-
-Let me know when you’ve added the ImGui source files, and I’ll generate the new ImGui-based proxy GUI code for you.
