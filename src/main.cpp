@@ -440,7 +440,7 @@ int main() {
 
     try {
         spdlog::info("Skript Proxy");
-        spdlog::info("Version 2.43 - Relog if you encounter issues");
+        spdlog::info("Version 2.44 - Relog if you encounter issues");
         spdlog::info("");
         utils::DiscordPresence::start();
 
