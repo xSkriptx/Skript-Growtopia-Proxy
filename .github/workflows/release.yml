@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags: ["SkriptProxyV*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Conan
+        run: |
+          pip install conan
+          conan profile detect --force
+
+      - name: Configure
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+
+      - name: Build
+        run: cmake --build build --config Release --target Skript -- /m
+
+      - name: Package
+        shell: bash
+        run: |
+          mkdir dist
+          cp build/src/Release/Skript.exe dist/
+          cp -r build/src/Release/resources dist/resources
+          # Never ship a private key or a pre-made certificate: each install generates its own.
+          rm -f dist/resources/key.pem dist/resources/cert.pem
+          cd dist && 7z a ../Skript-Proxy-windows-x64.zip . > /dev/null
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Skript-Proxy-windows-x64
+          path: Skript-Proxy-windows-x64.zip
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Skript-Proxy-windows-x64.zip
+          generate_release_notes: true
