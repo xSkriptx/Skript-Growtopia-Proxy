@@ -9,8 +9,8 @@ namespace core {
 static const std::map<std::string, ConfigStorage> config_defaults{
     { "server.port", 16999 },
     { "server.address", "www.growtopia1.com" },
-    { "client.game_version", "5.21" },
-    { "client.protocol", 312 },
+    { "client.game_version", "5.61" },
+    { "client.protocol", 227 },
     { "client.dnsServer", "cloudflare" },
     { "extension.ignore", std::vector<std::string>{ "0xdeadbeef" } },
     { "log.printMessage", true },

@@ -33,3 +33,7 @@ out/
 px.dat
 vd.dat
 locke_sightings.dat
+
+# Per-install HTTPS certificate (generated on first run; never commit)
+/resources/key.pem
+/resources/cert.pem
