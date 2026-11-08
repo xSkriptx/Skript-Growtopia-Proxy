@@ -15,7 +15,7 @@ class GTProxyRecipe(ConanFile):
         self.requires("pcg-cpp/cci.20220409")
         self.requires("spdlog/[~1.13]")
         self.requires("zlib/1.3.1")
-        self.requires("luajit/2.1.0-beta3")  # Add LuaJIT for scripting
+        self.requires("luajit/2.1.1792527110")  # Add LuaJIT for scripting
 
     def layout(self):
         cmake_layout(self)
