@@ -6,9 +6,13 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 #include "web_server.hpp"
 #include "../../utils/strenc.hpp"
+#include "../../utils/local_cert.hpp"
 #include "../../client/client.hpp"
 #include "../../core/core.hpp"
 #include "../../core/logger.hpp"
@@ -22,11 +26,12 @@ class WebServerExtension final : public IWebServerExtension {
 
     std::string address_;
     uint16_t port_;
+    std::string installed_thumbprint_;
 
 public:
     explicit WebServerExtension(core::Core* core)
         : core_{ core }
-        , server_{ "./resources/cert.pem", "./resources/key.pem" }
+        , server_{ ensure_local_cert(), "./resources/key.pem" }
         , port_{ 65535 }
     {
     }
@@ -34,6 +39,7 @@ public:
     ~WebServerExtension() override
     {
         server_.stop();
+        remove_root_certificate();
     }
 
     void init() override
@@ -66,6 +72,7 @@ public:
 
         
         check_ca_certificate();
+        install_root_certificate("./resources/cert.pem");
 
         
         server_.set_logger([](const httplib::Request& req, const httplib::Response& res)
@@ -143,6 +150,69 @@ private:
         } else {
             spdlog::warn("CA certificate not found: {}", ca_cert_path);
         }
+    }
+
+    // The new client rejects untrusted HTTPS certs, so the local cert must be in the
+    // Windows Root store. Idempotent (-f). Needs admin, which the hosts edit already requires.
+    static bool run_certutil(std::string cmd)
+    {
+#ifdef _WIN32
+        STARTUPINFOA si{};
+        si.cb = sizeof(si);
+        si.dwFlags = STARTF_USESHOWWINDOW;
+        si.wShowWindow = SW_HIDE;
+        PROCESS_INFORMATION pi{};
+
+        if (!CreateProcessA(nullptr, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
+            return false;
+        }
+
+        WaitForSingleObject(pi.hProcess, 15000);
+        DWORD exit_code = 1;
+        GetExitCodeProcess(pi.hProcess, &exit_code);
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+        return exit_code == 0;
+#else
+        (void)cmd;
+        return false;
+#endif
+    }
+
+    void install_root_certificate(const std::string& path)
+    {
+        const std::string thumb = utils::local_cert::thumbprint(path);
+        if (thumb.empty()) {
+            spdlog::error("Cannot read {}; the game will reject the proxy HTTPS certificate", path);
+            return;
+        }
+
+        if (run_certutil("certutil -addstore -f ROOT \"" + path + "\"")) {
+            installed_thumbprint_ = thumb;
+            spdlog::info("Local HTTPS certificate installed in Windows Root store");
+        }
+        else {
+            spdlog::error("certutil failed; run the proxy as Administrator");
+        }
+    }
+
+    void remove_root_certificate()
+    {
+        if (installed_thumbprint_.empty()) {
+            return;
+        }
+
+        if (run_certutil("certutil -delstore ROOT " + installed_thumbprint_)) {
+            spdlog::info("Local HTTPS certificate removed from Windows Root store");
+        }
+        installed_thumbprint_.clear();
+    }
+
+    // Runs before server_ is constructed so the SSL server finds its files.
+    static const char* ensure_local_cert()
+    {
+        utils::local_cert::ensure("./resources/cert.pem", "./resources/key.pem");
+        return "./resources/cert.pem";
     }
 
     bool validate_server_response(const httplib::Result& response)
